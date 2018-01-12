@@ -1,0 +1,9 @@
+.vscode
+node_modules
+build
+npm-debug.log
+
+ansible.yml
+ansible-vars.yml
+ansible.retry
+docker.env
