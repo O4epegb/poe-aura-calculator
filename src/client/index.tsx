@@ -1,71 +1,34 @@
 import * as React from 'react';
 import * as ReactDom from 'react-dom';
 import { Provider, observer, inject } from 'mobx-react';
-import { Big } from 'big.js';
+import { types } from 'mobx-state-tree';
 
 import '../../node_modules/normalize-css/normalize.css';
 import './styles/_index.styl';
 
-import { types } from 'mobx-state-tree';
-
-// function add(first: number, ...rest: Array<number>) {
-//     const bigResult = rest.reduce((acc, item) => acc.plus(item), Big(first));
-//     return Number(bigResult.toPrecision(4).valueOf());
-// }
-
-function multiply(first: number, ...rest: Array<number>) {
-    const bigResult = rest.reduce((acc, item) => acc.times(item), Big(first));
-    return Number(bigResult.toPrecision(4).valueOf());
-}
-
-// function minus(first: number, ...rest: Array<number>) {
-//     const bigResult = rest.reduce((acc, item) => acc.minus(item), Big(first));
-//     return Number(bigResult.toPrecision(4).valueOf());
-// }
-
-function divide(first: number, ...rest: Array<number>) {
-    const bigResult = rest.reduce((acc, item) => acc.div(item), Big(first));
-    return Number(bigResult.toPrecision(4).valueOf());
-}
-
-const clarityReservationPerLevel = [
-    0,
-    34,
-    48,
-    61,
-    76,
-    89,
-    102,
-    115,
-    129,
-    141,
-    154,
-    166,
-    178,
-    190,
-    203,
-    214,
-    227,
-    239,
-    251,
-    265,
-    279,
-    293,
-    303,
-    313,
-    323,
-    333,
-    343,
-    353,
-    363,
-    373,
-    383,
-    383
-];
+import {
+    clarityReservationPerLevel,
+    bloodMagicValuesPerLevel,
+    enlightenValuesPerLevel
+} from './auras-data';
+import { add, div, minus, mul } from './utils';
 
 enum AuraNames {
     Clarity = 'Clarity',
     Blasphemy = 'Blasphemy'
+}
+
+enum MultiplierNames {
+    Enlighten = 'Enlighten',
+    Enhance = 'Enhance',
+    Empower = 'Empower',
+    BloodMagic = 'Blood Magic Gem',
+    Generosity = 'Generosity',
+    EssenceWorm = 'Essence Worm',
+    HereticsVeil = "Heretic's Veil",
+    PrismGuardian = 'Prism Guardian',
+    Covenant = 'The Covenant',
+    VictariosInfluence = "Victario's Influence"
 }
 
 const GenericAura = types
@@ -85,10 +48,10 @@ const GenericAura = types
         return {
             totalReserved(multiplier = 1) {
                 const value = self.isChecked ? self.baseReservation : 0;
-                return multiply(value, multiplier);
+                return Math.floor(mul(value, multiplier));
             },
             reservationCost(multiplier = 1) {
-                return multiply(self.baseReservation, multiplier);
+                return Math.floor(mul(self.baseReservation, multiplier));
             }
         };
     });
@@ -112,10 +75,12 @@ const Blasphemy = types
     .views(self => {
         return {
             totalReserved(multiplier = 1) {
-                return multiply(
-                    self.reservationPerLevel,
-                    self.numberOfCurses,
-                    multiplier
+                return Math.floor(
+                    mul(
+                        self.reservationPerLevel,
+                        self.numberOfCurses,
+                        multiplier
+                    )
                 );
             }
         };
@@ -139,9 +104,8 @@ const Clarity = types
     .views(self => {
         return {
             totalReserved(multiplier = 1) {
-                return multiply(
-                    clarityReservationPerLevel[self.lvl],
-                    multiplier
+                return Math.floor(
+                    mul(clarityReservationPerLevel[self.lvl], multiplier)
                 );
             }
         };
@@ -152,7 +116,8 @@ const BasicMultiplier = types
         name: types.string,
         baseValue: types.number,
         isChecked: types.boolean,
-        isBloodMagic: types.optional(types.boolean, false)
+        isBloodMagic: types.optional(types.boolean, false),
+        isGlobal: types.optional(types.boolean, false)
     })
     .actions(self => {
         return {
@@ -167,7 +132,7 @@ const BasicMultiplier = types
                 return self.isChecked ? self.baseValue : 1;
             },
             get percentBaseValue() {
-                return multiply(self.baseValue, 100);
+                return mul(self.baseValue, 100);
             }
         };
     });
@@ -177,7 +142,7 @@ const LeveledMultiplier = types
         name: types.string,
         valuesArray: types.array(types.number),
         lvl: types.number,
-        isBloodMagic: types.optional(types.boolean, false)
+        bloodmagic: types.optional(types.boolean, false)
     })
     .actions(self => {
         return {
@@ -195,19 +160,73 @@ const LeveledMultiplier = types
                 return self.lvl > 0 ? self.valuesArray[self.lvl] : 1;
             },
             get percentValue() {
-                return multiply(self.valuesArray[self.lvl], 100);
+                return mul(self.valuesArray[self.lvl], 100);
+            },
+            get isBloodMagic() {
+                return self.lvl > 0 && self.bloodmagic;
+            }
+        };
+    });
+
+const Group = types
+    .model({
+        auras: types.array(types.union(GenericAura, Blasphemy, Clarity)),
+        multipliers: types.array(
+            types.union(BasicMultiplier, LeveledMultiplier)
+        )
+    })
+    .views(self => {
+        function percentReserved() {
+            const totalPercent = self.auras
+                .filter(item => !Clarity.is(item))
+                .reduce((acc, item) => add(acc, item.totalReserved()), 0);
+            return Math.floor(useMultiplier(totalPercent));
+        }
+
+        function flatReserved() {
+            const totalFlat = self.auras
+                .filter(item => Clarity.is(item))
+                .reduce((acc, item) => add(acc, item.totalReserved()), 0);
+
+            return useMultiplier(totalFlat);
+        }
+
+        function finalMultiplier() {
+            return self.multipliers.reduce(
+                (acc, item) => minus(add(acc, item.value), 1),
+                1
+            );
+        }
+
+        function useMultiplier(value: number) {
+            return mul(finalMultiplier(), value);
+        }
+
+        function isBloodMagic() {
+            return self.multipliers.some(item => item.isBloodMagic);
+        }
+
+        return {
+            get percentReserved() {
+                return percentReserved();
+            },
+            get flatReserved() {
+                return flatReserved();
+            },
+            get finalMultiplier() {
+                return finalMultiplier();
+            },
+            get isBloodMagic() {
+                return isBloodMagic();
             }
         };
     });
 
 const StoreModel = types
     .model({
-        auras: types.array(types.union(GenericAura, Blasphemy, Clarity)),
-        mana: 1000,
-        life: 5000,
-        multipliers: types.array(
-            types.union(BasicMultiplier, LeveledMultiplier)
-        )
+        mana: types.number,
+        life: types.number,
+        groups: types.array(Group)
     })
     .actions(self => {
         return {
@@ -216,117 +235,126 @@ const StoreModel = types
             },
             changeLife(number: number) {
                 self.life = Math.min(number, 100000);
+            },
+            addGroup() {
+                self.groups.push(createGroup());
             }
         };
     })
     .views(self => {
-        function totalPercentReserved() {
-            const percentItems = self.auras.filter(item => !Clarity.is(item));
-            return percentItems.reduce(
-                (acc, item) => acc + item.totalReserved(),
+        function flatLifeReserved() {
+            return self.groups.reduce(
+                (acc, group) =>
+                    add(acc, group.isBloodMagic ? group.flatReserved : 0),
                 0
             );
         }
 
-        function totalFlatReserved() {
-            const flatItems = self.auras.filter(item => Clarity.is(item));
-
-            return flatItems.reduce(
-                (acc, item) => acc + item.totalReserved(),
+        function flatManaReserved() {
+            return self.groups.reduce(
+                (acc, group) =>
+                    add(acc, group.isBloodMagic ? 0 : group.flatReserved),
                 0
             );
         }
 
-        function totalReservedByPercent(value: number) {
-            return multiply(divide(value, 100), totalPercentReserved());
+        function valueReservedByPercent(value: number, percent: number) {
+            return mul(div(value, 100), percent);
         }
 
-        function totalMultiplier() {
-            const multi = self.multipliers.reduce(
-                (acc, item) => acc + item.value - 1,
-                1
+        function manaPercentReserved() {
+            return self.groups.reduce(
+                (acc, group) =>
+                    add(acc, group.isBloodMagic ? 0 : group.percentReserved),
+                0
             );
-            return multi;
         }
 
-        function calculate(value: number) {
-            return multiply(totalMultiplier(), value);
-        }
-
-        function isBloodMagic() {
-            return self.multipliers.some(item => item.isBloodMagic);
+        function lifePercentReserved() {
+            return self.groups.reduce(
+                (acc, group) =>
+                    add(acc, group.isBloodMagic ? group.percentReserved : 0),
+                0
+            );
         }
 
         return {
-            get totalPercentReserved() {
-                return calculate(totalPercentReserved());
+            get lifePercentReserved() {
+                return lifePercentReserved();
             },
-            get totalFlatReserved() {
-                return calculate(totalFlatReserved());
-            },
-            get totalReservedByPercent() {
-                return calculate(totalReservedByPercent(self.mana));
+            get manaPercentReserved() {
+                return manaPercentReserved();
             },
             get totalReservedMana() {
-                return isBloodMagic()
-                    ? 0
-                    : calculate(
-                          totalReservedByPercent(self.mana) +
-                              totalFlatReserved()
-                      );
+                return add(
+                    valueReservedByPercent(self.mana, manaPercentReserved()),
+                    flatManaReserved()
+                );
             },
             get totalReservedLife() {
-                return isBloodMagic()
-                    ? calculate(
-                          totalReservedByPercent(self.life) +
-                              totalFlatReserved()
-                      )
-                    : 0;
-            },
-            get totalMultiplier() {
-                return totalMultiplier();
-            },
-            get isBloodMagic() {
-                return isBloodMagic();
+                return add(
+                    valueReservedByPercent(self.life, lifePercentReserved()),
+                    flatLifeReserved()
+                );
             }
         };
     });
 
-const Store = StoreModel.create({
-    auras: [
-        ...[1, 2, 3, 4, 5].map(i => {
-            return {
-                name: `Aura ${i}`,
-                baseReservation: i * 10,
+function createGroup(): typeof Group.Type {
+    return Group.create({
+        auras: [
+            ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => {
+                return {
+                    name: `Aura ${i}`,
+                    baseReservation: i * 5,
+                    isChecked: false
+                };
+            }),
+            {
+                name: AuraNames.Clarity,
+                lvl: 0
+            },
+            {
+                name: AuraNames.Blasphemy,
+                numberOfCurses: 0
+            }
+        ],
+        multipliers: [
+            {
+                name: MultiplierNames.Empower,
+                baseValue: 1.25,
                 isChecked: false
-            };
-        }),
-        {
-            name: AuraNames.Clarity,
-            lvl: 0
-        },
-        {
-            name: AuraNames.Blasphemy,
-            numberOfCurses: 0
-        }
-    ],
-    multipliers: [
-        {
-            name: 'Empower',
-            baseValue: 1.25,
-            isChecked: false
-        },
-        {
-            name: 'Enlighten',
-            valuesArray: [1.0, 1.1, 1.2],
-            lvl: 0
-        },
-        {
-            name: 'Blood Magic',
-            valuesArray: [1.0, 2.45, 2.42],
-            lvl: 0
-        }
-    ]
+            },
+            {
+                name: MultiplierNames.Enlighten,
+                valuesArray: enlightenValuesPerLevel,
+                lvl: 0
+            },
+            {
+                name: MultiplierNames.BloodMagic,
+                valuesArray: bloodMagicValuesPerLevel,
+                lvl: 0,
+                bloodmagic: true
+            },
+            {
+                name: MultiplierNames.Generosity,
+                baseValue: 1,
+                isChecked: false
+            },
+            {
+                name: MultiplierNames.EssenceWorm,
+                baseValue: 1.4,
+                isChecked: false,
+                isGlobal: true
+            }
+        ]
+    });
+}
+
+const Store = StoreModel.create({
+    mana: 1000,
+    life: 1000,
+    groups: [createGroup()]
 });
 
 @inject('store')
@@ -341,66 +369,92 @@ class AppComponent extends React.Component<
         const { store } = this.props;
 
         return (
-            <div>
-                <div>
-                    <h3>Auras</h3>
-                    {store.auras.map((item, i) => {
-                        if (Clarity.is(item)) {
-                            return (
-                                <div key={i}>
-                                    {item.name}: lvl {item.lvl}, reservation{' '}
-                                    {item.totalReserved(store.totalMultiplier)}
-                                    <button onClick={item.decrease}>-</button>
-                                    <button onClick={item.increase}>+</button>
-                                </div>
-                            );
-                        }
-                        if (Blasphemy.is(item)) {
-                            return (
-                                <div key={i}>
-                                    {item.name}: curses {item.numberOfCurses},
-                                    reservation{' '}
-                                    {item.totalReserved(store.totalMultiplier)}%
-                                    <button onClick={item.decrease}>-</button>
-                                    <button onClick={item.increase}>+</button>
-                                </div>
-                            );
-                        }
-                        return (
-                            <div key={i}>
-                                {item.name} reservation:{' '}
-                                {item.reservationCost(store.totalMultiplier)}%
-                                <button onClick={item.toggle}>
-                                    {item.isChecked.toString()}
-                                </button>
-                            </div>
-                        );
-                    })}
-                </div>
-                <div>
-                    <h3>Multipliers</h3>
-                    {store.multipliers.map((item, i) => {
-                        if (LeveledMultiplier.is(item)) {
-                            return (
-                                <div key={i}>
-                                    {item.name}, lvl {item.lvl}, value{' '}
-                                    {item.percentValue}%
-                                    <button onClick={item.decrease}>-</button>
-                                    <button onClick={item.increase}>+</button>
-                                </div>
-                            );
-                        }
-                        return (
-                            <div key={i}>
-                                {item.name}, value {item.percentBaseValue}%
-                                <button onClick={item.toggle}>
-                                    {item.isChecked.toString()}
-                                </button>
-                            </div>
-                        );
-                    })}
-                </div>
+            <div className="wrapper">
+                {store.groups.map((group, groupIndex) => (
+                    <div key={groupIndex} className="group">
+                        <h2>Group {groupIndex + 1}</h2>
+                        <h3>Auras</h3>
+                        <div>
+                            {group.auras.map((item, i) => {
+                                if (Clarity.is(item)) {
+                                    return (
+                                        <div key={i}>
+                                            {item.name}: lvl {item.lvl},
+                                            reservation{' '}
+                                            {item.totalReserved(
+                                                group.finalMultiplier
+                                            )}
+                                            <button onClick={item.decrease}>
+                                                -
+                                            </button>
+                                            <button onClick={item.increase}>
+                                                +
+                                            </button>
+                                        </div>
+                                    );
+                                }
+                                if (Blasphemy.is(item)) {
+                                    return (
+                                        <div key={i}>
+                                            {item.name}: curses{' '}
+                                            {item.numberOfCurses}, reservation{' '}
+                                            {item.totalReserved(
+                                                group.finalMultiplier
+                                            )}%
+                                            <button onClick={item.decrease}>
+                                                -
+                                            </button>
+                                            <button onClick={item.increase}>
+                                                +
+                                            </button>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div key={i}>
+                                        {item.name} reservation:{' '}
+                                        {item.reservationCost(
+                                            group.finalMultiplier
+                                        )}%
+                                        <button onClick={item.toggle}>
+                                            {item.isChecked.toString()}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div>
+                            <h3>Multipliers</h3>
+                            {group.multipliers.map((item, i) => {
+                                if (LeveledMultiplier.is(item)) {
+                                    return (
+                                        <div key={i}>
+                                            {item.name}, lvl {item.lvl}, value{' '}
+                                            {item.percentValue}%
+                                            <button onClick={item.decrease}>
+                                                -
+                                            </button>
+                                            <button onClick={item.increase}>
+                                                +
+                                            </button>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div key={i}>
+                                        {item.name}, value{' '}
+                                        {item.percentBaseValue}%
+                                        <button onClick={item.toggle}>
+                                            {item.isChecked.toString()}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
                 <h3>Result</h3>
+                <button onClick={store.addGroup}>Add group</button>
                 <div>
                     Mana:{' '}
                     <input
@@ -420,23 +474,17 @@ class AppComponent extends React.Component<
                     />
                 </div>
                 <br />
-                <div>Total reserved percent: {store.totalPercentReserved}%</div>
-                <div>
-                    Total reserved by percent : {store.totalReservedByPercent}
-                </div>
-                <div>Total reserved flat: {store.totalFlatReserved}</div>
                 <div>Total reserved mana: {store.totalReservedMana}</div>
                 <div>Total reserved life: {store.totalReservedLife}</div>
                 <br />
                 <div>
                     Mana: {store.mana - store.totalReservedMana}/{store.mana}
-                    <div>Reserved: {store.totalPercentReserved}%</div>
+                    <div>Reserved: {store.manaPercentReserved}%</div>
                 </div>
                 <div>
                     Life: {store.life - store.totalReservedLife}/{store.life}
-                    <div>Reserved: {store.totalPercentReserved}%</div>
+                    <div>Reserved: {store.lifePercentReserved}%</div>
                 </div>
-                <div>isBloodMagic = {store.isBloodMagic.toString()}</div>
             </div>
         );
     }

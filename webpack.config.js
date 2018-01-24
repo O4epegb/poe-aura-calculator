@@ -1,6 +1,6 @@
 const path = require('path');
 const webpack = require('webpack');
-const precss = require('precss');
+// const precss = require('precss');
 const autoprefixer = require('autoprefixer');
 const nodeExternals = require('webpack-node-externals');
 const ExtractTextPlugin = require('extract-text-webpack-plugin');
@@ -114,7 +114,7 @@ const clientConfig = {
                         {
                             loader: 'postcss-loader',
                             options: {
-                                plugins: loader => [precss, autoprefixer],
+                                plugins: loader => [autoprefixer],
                                 sourceMap: true
                             }
                         }
@@ -135,7 +135,7 @@ const clientConfig = {
                         {
                             loader: 'postcss-loader',
                             options: {
-                                plugins: loader => [precss, autoprefixer],
+                                plugins: loader => [autoprefixer],
                                 sourceMap: true
                             }
                         },

@@ -4,9 +4,16 @@
         "comment-format": [true, "check-space"],
         "indent": [true, "spaces"],
         "one-line": [true, "check-open-brace", "check-whitespace"],
-        "quotemark": [true, "single", "jsx-double"],
+        "quotemark": [true, "single", "jsx-double", "avoid-escape"],
         "semicolon": [true, "always", "ignore-bound-class-methods"],
-        "whitespace": [true, "check-branch", "check-operator", "check-separator", "check-type", "check-module"],
+        "whitespace": [
+            true,
+            "check-branch",
+            "check-operator",
+            "check-separator",
+            "check-type",
+            "check-module"
+        ],
         "typedef-whitespace": [
             true,
             {

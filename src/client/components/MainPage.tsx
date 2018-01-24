@@ -1,18 +1,16 @@
 import * as React from 'react';
 import { observer, inject } from 'mobx-react';
 
-import { Stores } from '../../models';
-
 interface State {}
 
 interface Props {
-    stores: Stores;
+    stores: any;
 }
 
 @inject('stores')
 @observer
 export class MainPage extends React.Component<Props, State> {
     render() {
-        return <div>hi</div>;
+        return <div>hi!</div>;
     }
 }
